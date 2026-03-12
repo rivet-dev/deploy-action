@@ -355,9 +355,26 @@ async function setupFlow(): Promise<void> {
 		const poolName = "default";
 		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
 
-		// Step 3: Docker login
+		// Step 3: Upsert managed pool with dummy image (required before first push)
 		console.log("");
-		console.log("Step 3: Docker login to Rivet registry...");
+		console.log("Step 3: Upserting managed pool (dummy image)...");
+		await rivetCloudFetch(
+			`/projects/${project}/namespaces/${namespace.name}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
+			{
+				method: "PUT",
+				body: JSON.stringify({
+					displayName,
+					minCount: 0,
+					maxCount: 10,
+					...MANAGED_POOL_CONFIG,
+					image: { repository: "init", tag: "0.0.0" },
+				}),
+			}
+		);
+
+		// Step 4: Docker login
+		console.log("");
+		console.log("Step 4: Docker login to Rivet registry...");
 		console.log(`  Registry: ${registry}`);
 		commentId = await updateComment(
 			commentId,
@@ -365,24 +382,24 @@ async function setupFlow(): Promise<void> {
 		);
 		dockerExec(`docker login ${registry} --username rivet --password ${RIVET_CLOUD_TOKEN}`);
 
-		// Step 4: Docker build
+		// Step 5: Docker build
 		console.log("");
-		console.log("Step 4: Building Docker image...");
+		console.log("Step 5: Building Docker image...");
 		console.log(`  Image: ${imageRef}`);
 		dockerExec(`docker build ${DOCKER_BUILD_PATH} -f ${DOCKERFILE_PATH} -t ${imageRef}`);
 
-		// Step 5: Docker push
+		// Step 6: Docker push
 		console.log("");
-		console.log("Step 5: Pushing image to registry...");
+		console.log("Step 6: Pushing image to registry...");
 		commentId = await updateComment(
 			commentId,
 			rivetDataTag + "\n" + intro + tableHeader + `| \`${projectName}\` | \`${namespace.name}\` | Pushing image... | <a href="${dashboardUrl}" target="_blank">Dashboard</a> |`
 		);
 		dockerExec(`docker push ${imageRef}`);
 
-		// Step 6: Upsert managed pool
+		// Step 7: Upsert managed pool
 		console.log("");
-		console.log("Step 6: Upserting managed pool...");
+		console.log("Step 7: Upserting managed pool...");
 		console.log(`  Pool: ${poolName}`);
 		commentId = await updateComment(
 			commentId,
@@ -409,7 +426,7 @@ async function setupFlow(): Promise<void> {
 			}
 		);
 
-		// Step 7: Done
+		// Step 8: Done
 		console.log("");
 		console.log("=== Success! ===");
 		console.log(`  Namespace: ${namespace.name}`);
