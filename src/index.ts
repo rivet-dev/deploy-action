@@ -355,9 +355,9 @@ async function setupFlow(): Promise<void> {
 		const poolName = "default";
 		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
 
-		// Step 3: Upsert managed pool with dummy image (required before first push)
+		// Step 3: Upsert managed pool (required before first push) and wait until ready
 		console.log("");
-		console.log("Step 3: Upserting managed pool (dummy image)...");
+		console.log("Step 3: Upserting managed pool...");
 		await rivetCloudFetch(
 			`/projects/${project}/namespaces/${namespace.name}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
 			{
@@ -370,6 +370,17 @@ async function setupFlow(): Promise<void> {
 				}),
 			}
 		);
+
+		console.log("  Waiting for managed pool to be ready...");
+		while (true) {
+			const { managedPools } = await rivetCloudFetch(
+				`/projects/${project}/namespaces/${namespace.name}/managed-pools?org=${encodeURIComponent(organization)}`
+			);
+			const pool = managedPools?.find((p: any) => p.name === poolName);
+			console.log(`  Pool status: ${pool?.status ?? "unknown"}`);
+			if (pool?.status === "ready") break;
+			await new Promise(resolve => setTimeout(resolve, 2000));
+		}
 
 		// Step 4: Docker login
 		console.log("");
