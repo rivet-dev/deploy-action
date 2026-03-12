@@ -1,0 +1,62 @@
+name: 'Rivet Deploy'
+description: 'Build and deploy Docker images to Rivet managed pools'
+author: 'Rivet'
+branding:
+  icon: 'server'
+  color: 'orange'
+
+inputs:
+  rivet-token:
+    description: 'Rivet Cloud API token'
+    required: true
+  rivet-endpoint:
+    description: 'Rivet Engine API endpoint'
+    required: false
+    default: 'https://api.rivet.dev'
+  github-token:
+    description: 'GitHub token for PR comments'
+    required: false
+    default: ${{ github.token }}
+  main-branch:
+    description: 'Main branch name for production deployments'
+    required: false
+    default: 'main'
+  docker-root:
+    description: 'Docker build context directory'
+    required: false
+    default: '.'
+  dockerfile-path:
+    description: 'Dockerfile location relative to repo root'
+    required: false
+    default: 'Dockerfile'
+  runner-config:
+    description: 'JSON property overrides for runner configuration'
+    required: false
+    default: '{}'
+  managed-pool-config:
+    description: 'JSON property overrides for managed pool configuration'
+    required: false
+    default: '{}'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Deploy to Rivet
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        RIVET_CLOUD_TOKEN: ${{ inputs.rivet-token }}
+        RIVET_ENGINE_ENDPOINT: ${{ inputs.rivet-endpoint }}
+        PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        REPO_FULL_NAME: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        MAIN_BRANCH: ${{ inputs.main-branch }}
+        DOCKER_ROOT: ${{ inputs.docker-root }}
+        DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+        MANAGED_POOL_CONFIG: ${{ inputs.managed-pool-config }}
+      run: bun run ${{ github.action_path }}/src/index.ts
