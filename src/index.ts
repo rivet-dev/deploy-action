@@ -387,31 +387,45 @@ async function setupFlow(): Promise<void> {
 		const poolName = "default";
 		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
 
-		// Step 3: Upsert managed pool (required before first push) and wait until ready
+		// Step 3: Ensure managed pool exists and is ready before first push
 		console.log("");
-		console.log("Step 3: Upserting managed pool...");
-		await rivetCloudFetch(
-			`/projects/${project}/namespaces/${namespace.name}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
-			{
-				method: "PUT",
-				body: JSON.stringify({
-					displayName,
-					minCount: 0,
-					maxCount: 10,
-					...MANAGED_POOL_CONFIG,
-				}),
-			}
+		console.log("Step 3: Checking managed pool...");
+		const { managedPools: existingPools } = await rivetCloudFetch(
+			`/projects/${project}/namespaces/${namespace.name}/managed-pools?org=${encodeURIComponent(organization)}`
 		);
+		const existingPool = existingPools?.find((p: any) => p.name === poolName);
 
-		console.log("  Waiting for managed pool to be ready...");
-		while (true) {
-			const { managedPools } = await rivetCloudFetch(
-				`/projects/${project}/namespaces/${namespace.name}/managed-pools?org=${encodeURIComponent(organization)}`
-			);
-			const pool = managedPools?.find((p: any) => p.name === poolName);
-			console.log(`  Pool status: ${pool?.status ?? "unknown"}`);
-			if (pool?.status === "ready") break;
-			await new Promise(resolve => setTimeout(resolve, 2000));
+		if (existingPool?.status === "ready") {
+			console.log("  Pool already exists and is ready");
+		} else {
+			if (existingPool) {
+				console.log(`  Pool already exists (status: ${existingPool.status}), waiting for ready...`);
+			} else {
+				console.log("  Pool does not exist, upserting...");
+				await rivetCloudFetch(
+					`/projects/${project}/namespaces/${namespace.name}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
+					{
+						method: "PUT",
+						body: JSON.stringify({
+							displayName,
+							minCount: 0,
+							maxCount: 10,
+							...MANAGED_POOL_CONFIG,
+						}),
+					}
+				);
+			}
+
+			console.log("  Waiting for managed pool to be ready...");
+			while (true) {
+				const { managedPools } = await rivetCloudFetch(
+					`/projects/${project}/namespaces/${namespace.name}/managed-pools?org=${encodeURIComponent(organization)}`
+				);
+				const pool = managedPools?.find((p: any) => p.name === poolName);
+				console.log(`  Pool status: ${pool?.status ?? "unknown"}`);
+				if (pool?.status === "ready") break;
+				await new Promise(resolve => setTimeout(resolve, 2000));
+			}
 		}
 
 		// Step 4: Docker login
