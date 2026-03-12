@@ -367,7 +367,6 @@ async function setupFlow(): Promise<void> {
 					minCount: 0,
 					maxCount: 10,
 					...MANAGED_POOL_CONFIG,
-					image: { repository: "init", tag: "0.0.0" },
 				}),
 			}
 		);
