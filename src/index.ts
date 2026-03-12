@@ -10,6 +10,7 @@ const GITHUB_EVENT_PATH = process.env.GITHUB_EVENT_PATH || "";
 const DOCKER_BUILD_PATH = process.env.DOCKER_BUILD_PATH || ".";
 const DOCKERFILE_PATH = process.env.DOCKERFILE_PATH || "Dockerfile";
 const GITHUB_SHA = process.env.GITHUB_SHA || "latest";
+const PROD_NAMESPACE_OVERRIDE = process.env.PROD_NAMESPACE_OVERRIDE || "";
 
 function readGitHubEventPayload(): any | null {
 	if (!GITHUB_EVENT_PATH) return null;
@@ -163,10 +164,7 @@ async function findExistingComment(): Promise<ExistingComment | null> {
 }
 
 async function updateComment(commentId: number | null, body: string): Promise<number | null> {
-	if (!IS_PR) {
-		console.log(body.replace(/\n/g, " ").substring(0, 100));
-		return null;
-	}
+	if (!IS_PR) return null;
 
 	const fullBody = `${COMMENT_MARKER}\n${body}`;
 
@@ -307,8 +305,6 @@ async function setupFlow(): Promise<void> {
 		console.log(`  Project: ${project}`);
 		console.log(`  Organization: ${organization}`);
 
-		const dashboardUrl = `https://dashboard.rivet.dev/orgs/${organization}/projects/${project}/ns/${NAMESPACE_NAME}?skipOnboarding=1`;
-
 		commentId = await updateComment(
 			commentId,
 			intro + tableHeader + `| \`${projectName}\` | - | Creating namespace... | - |`
@@ -326,7 +322,41 @@ async function setupFlow(): Promise<void> {
 		let namespace: any;
 		let engineNamespace: string;
 
-		if (existingRivetData) {
+		if (IS_MAIN) {
+			// For production, find the first existing prod-* namespace (or use override)
+			let prodNs: any;
+			if (PROD_NAMESPACE_OVERRIDE) {
+				console.log(`  Using prod namespace override: ${PROD_NAMESPACE_OVERRIDE}`);
+				const { namespace: fullNs } = await rivetCloudFetch(
+					`/projects/${project}/namespaces/${PROD_NAMESPACE_OVERRIDE}?org=${encodeURIComponent(organization)}`
+				);
+				prodNs = fullNs;
+			} else {
+				console.log("  Looking for existing prod-* namespace...");
+				const { namespaces: nsList } = await rivetCloudFetch(
+					`/projects/${project}/namespaces?org=${encodeURIComponent(organization)}&limit=10`
+				);
+				prodNs = nsList?.find((ns: any) => ns.name.startsWith("prod-"));
+			}
+			if (prodNs) {
+				namespace = prodNs;
+				engineNamespace = prodNs.access?.engineNamespaceName || prodNs.name;
+				console.log(`  Found existing prod namespace: ${namespace.name}`);
+			} else {
+				console.log(`  No prod-* namespace found, creating: ${NAMESPACE_NAME}`);
+				const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
+					method: "POST",
+					body: JSON.stringify({
+						name: NAMESPACE_NAME,
+						displayName,
+						metadata: namespaceMetadata,
+					}),
+				});
+				namespace = result.namespace;
+				engineNamespace = namespace.access?.engineNamespaceName || namespace.name;
+				console.log(`  Created namespace: ${namespace.name}`);
+			}
+		} else if (existingRivetData) {
 			console.log(`  Fetching existing namespace: ${existingRivetData.namespace}`);
 			const { namespace: fullNs } = await rivetCloudFetch(
 				`/projects/${project}/namespaces/${existingRivetData.namespace}?org=${organization}`
@@ -349,11 +379,13 @@ async function setupFlow(): Promise<void> {
 			console.log(`  Created namespace: ${namespace.name}`);
 		}
 
+		const dashboardUrl = `${getDashboardEndpoint()}/orgs/${organization}/projects/${project}/ns/${namespace.name}?skipOnboarding=1`;
+
 		const rivetDataTag = buildRivetDataTag({ namespace: namespace.name, engineNamespace });
 		const registry = getRegistryEndpoint();
 		const imageName = projectName;
 		const poolName = "default";
-		const imageRef = `${registry}/${project}/${imageName}:${IMAGE_TAG}`;
+		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
 
 		// Step 3: Upsert managed pool (required before first push) and wait until ready
 		console.log("");

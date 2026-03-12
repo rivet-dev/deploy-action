@@ -37,6 +37,10 @@ inputs:
     description: 'JSON property overrides for managed pool configuration'
     required: false
     default: '{}'
+  prod-namespace:
+    description: '(Advanced) Override the production namespace slug instead of auto-detecting the first prod-* namespace'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -59,4 +63,5 @@ runs:
         DOCKER_BUILD_PATH: ${{ inputs.docker-build-path }}
         DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
         MANAGED_POOL_CONFIG: ${{ inputs.managed-pool-config }}
+        PROD_NAMESPACE_OVERRIDE: ${{ inputs.prod-namespace }}
       run: bun run ${{ github.action_path }}/src/index.ts

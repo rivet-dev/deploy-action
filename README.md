@@ -13,6 +13,7 @@ Creates Rivet namespaces for preview deployments.
 | `docker-build-path` | No | `.` | Docker build context directory |
 | `dockerfile-path` | No | `Dockerfile` | Dockerfile location |
 | `managed-pool-config` | No | `{ }` | JSON property overrides for managed pool configuration |
+| `prod-namespace` | No | - | **(Advanced)** Override the production namespace slug instead of auto-detecting the first `prod-*` namespace |
 
 ## Setup
 
@@ -41,8 +42,10 @@ Creates Rivet namespaces for preview deployments.
      rivet-deploy:
        runs-on: ubuntu-latest
        permissions:
+         contents: read
          pull-requests: write
        steps:
+         - uses: actions/checkout@v4
          - uses: rivet-dev/deploy-action@v1
            with:
              rivet-token: ${{ secrets.RIVET_CLOUD_TOKEN }}
