@@ -1,4 +1,4 @@
-# Rivet Preview Namespace Action
+# Rivet Deploy Action
 
 Creates Rivet namespaces for preview deployments.
 
@@ -10,8 +10,8 @@ Creates Rivet namespaces for preview deployments.
 | `rivet-endpoint` | No | `https://api.rivet.dev` | Rivet Engine API endpoint |
 | `github-token` | No | `${{ github.token }}` | GitHub token for PR comments |
 | `main-branch` | No | `main` | Main branch name for production deployments |
-| `docker-root` | No | `.` | Docker build context directory |
-| `dockerfile-path` | No | `Dockerfile` | Dockerfile location relative to repo root |
+| `docker-build-path` | No | `.` | Docker build context directory |
+| `dockerfile-path` | No | `Dockerfile` | Dockerfile location |
 | `managed-pool-config` | No | `{ }` | JSON property overrides for managed pool configuration |
 
 ## Setup
@@ -23,9 +23,9 @@ Creates Rivet namespaces for preview deployments.
    gh secret set RIVET_CLOUD_TOKEN
    ```
 
-3. Create `.github/workflows/rivet-preview.yml`:
+3. Create `.github/workflows/rivet-deploy.yml`:
    ```yaml
-   name: Rivet Preview
+   name: Rivet Deploy
 
    on:
      pull_request:
@@ -34,16 +34,16 @@ Creates Rivet namespaces for preview deployments.
        branches: [main]
 
    concurrency:
-     group: rivet-preview-${{ github.event.pull_request.number || github.ref }}
+     group: rivet-deploy-${{ github.event.pull_request.number || github.ref }}
      cancel-in-progress: true
 
    jobs:
-     rivet-preview:
+     rivet-deploy:
        runs-on: ubuntu-latest
        permissions:
          pull-requests: write
        steps:
-         - uses: rivet-dev/preview-namespace-action@v1
+         - uses: rivet-dev/deploy-action@v1
            with:
              rivet-token: ${{ secrets.RIVET_CLOUD_TOKEN }}
    ```

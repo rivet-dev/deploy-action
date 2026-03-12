@@ -7,8 +7,8 @@ const RIVET_CLOUD_TOKEN = process.env.RIVET_CLOUD_TOKEN!;
 const RIVET_ENGINE_ENDPOINT = process.env.RIVET_ENGINE_ENDPOINT || "https://api.rivet.dev";
 const GITHUB_EVENT_NAME = process.env.GITHUB_EVENT_NAME || "";
 const GITHUB_EVENT_PATH = process.env.GITHUB_EVENT_PATH || "";
+const DOCKER_BUILD_PATH = process.env.DOCKER_BUILD_PATH || ".";
 const DOCKERFILE_PATH = process.env.DOCKERFILE_PATH || "Dockerfile";
-const DOCKER_ROOT = process.env.DOCKER_ROOT || ".";
 const GITHUB_SHA = process.env.GITHUB_SHA || "latest";
 
 function readGitHubEventPayload(): any | null {
@@ -369,7 +369,7 @@ async function setupFlow(): Promise<void> {
 		console.log("");
 		console.log("Step 4: Building Docker image...");
 		console.log(`  Image: ${imageRef}`);
-		dockerExec(`docker build ${DOCKER_ROOT} -f ${DOCKERFILE_PATH} -t ${imageRef}`);
+		dockerExec(`docker build ${DOCKER_BUILD_PATH} -f ${DOCKERFILE_PATH} -t ${imageRef}`);
 
 		// Step 5: Docker push
 		console.log("");

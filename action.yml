@@ -21,12 +21,12 @@ inputs:
     description: 'Main branch name for production deployments'
     required: false
     default: 'main'
-  docker-root:
+  docker-build-path:
     description: 'Docker build context directory'
     required: false
     default: '.'
   dockerfile-path:
-    description: 'Dockerfile location relative to repo root'
+    description: 'Dockerfile location'
     required: false
     default: 'Dockerfile'
   runner-config:
