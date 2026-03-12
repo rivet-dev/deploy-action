@@ -208,10 +208,8 @@ function getRepoProjectName(): string {
 }
 
 function dockerExec(cmd: string): void {
-	const cwd = process.env.GITHUB_WORKSPACE;
-	console.log(`  cwd: ${cwd}`);
 	console.log(`  $ ${cmd.replace(RIVET_CLOUD_TOKEN, "***")}`);
-	execSync(cmd, { stdio: "inherit", cwd });
+	execSync(cmd, { stdio: "inherit", cwd: process.env.GITHUB_WORKSPACE });
 }
 
 async function cleanupFlow(): Promise<void> {
@@ -355,7 +353,7 @@ async function setupFlow(): Promise<void> {
 		const registry = getRegistryEndpoint();
 		const imageName = projectName;
 		const poolName = "default";
-		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
+		const imageRef = `${registry}/${project}/${imageName}:${IMAGE_TAG}`;
 
 		// Step 3: Upsert managed pool (required before first push) and wait until ready
 		console.log("");
