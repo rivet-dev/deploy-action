@@ -209,7 +209,7 @@ function getRepoProjectName(): string {
 
 function dockerExec(cmd: string): void {
 	console.log(`  $ ${cmd.replace(RIVET_CLOUD_TOKEN, "***")}`);
-	execSync(cmd, { stdio: "inherit" });
+	execSync(cmd, { stdio: "inherit", cwd: process.env.GITHUB_WORKSPACE });
 }
 
 async function cleanupFlow(): Promise<void> {
