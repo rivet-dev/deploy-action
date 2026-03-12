@@ -385,7 +385,7 @@ async function setupFlow(): Promise<void> {
 		const registry = getRegistryEndpoint();
 		const imageName = projectName;
 		const poolName = "default";
-		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
+		const imageRef = `${registry}/${project}/${imageName}:${IMAGE_TAG}`;
 
 		// Step 3: Ensure managed pool exists and is ready before first push
 		console.log("");
