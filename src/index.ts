@@ -323,7 +323,7 @@ async function setupFlow(): Promise<void> {
 		let engineNamespace: string;
 
 		if (IS_MAIN) {
-			// For production, find the first existing prod-* namespace (or use override)
+			// For production, find the first existing production-* namespace (or use override)
 			let prodNs: any;
 			if (PROD_NAMESPACE_OVERRIDE) {
 				console.log(`  Using prod namespace override: ${PROD_NAMESPACE_OVERRIDE}`);
@@ -332,18 +332,18 @@ async function setupFlow(): Promise<void> {
 				);
 				prodNs = fullNs;
 			} else {
-				console.log("  Looking for existing prod-* namespace...");
+				console.log("  Looking for existing production-* namespace...");
 				const { namespaces: nsList } = await rivetCloudFetch(
 					`/projects/${project}/namespaces?org=${encodeURIComponent(organization)}&limit=10`
 				);
-				prodNs = nsList?.find((ns: any) => ns.name.startsWith("prod-"));
+				prodNs = nsList?.find((ns: any) => ns.name.startsWith("production-"));
 			}
 			if (prodNs) {
 				namespace = prodNs;
 				engineNamespace = prodNs.access?.engineNamespaceName || prodNs.name;
 				console.log(`  Found existing prod namespace: ${namespace.name}`);
 			} else {
-				console.log(`  No prod-* namespace found, creating: ${NAMESPACE_NAME}`);
+				console.log(`  No production-* namespace found, creating: ${NAMESPACE_NAME}`);
 				const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
 					method: "POST",
 					body: JSON.stringify({
@@ -385,7 +385,7 @@ async function setupFlow(): Promise<void> {
 		const registry = getRegistryEndpoint();
 		const imageName = projectName;
 		const poolName = "default";
-		const imageRef = `${registry}/${project}/${imageName}:${IMAGE_TAG}`;
+		const imageRef = `${registry}/${imageName}:${IMAGE_TAG}`;
 
 		// Step 3: Ensure managed pool exists and is ready before first push
 		console.log("");
@@ -424,6 +424,9 @@ async function setupFlow(): Promise<void> {
 				const pool = managedPools?.find((p: any) => p.name === poolName);
 				console.log(`  Pool status: ${pool?.status ?? "unknown"}`);
 				if (pool?.status === "ready") break;
+				if (pool?.status === "error") {
+					throw new Error(`Managed pool entered error state: ${pool.error?.message ?? "unknown error"}`);
+				}
 				await new Promise(resolve => setTimeout(resolve, 2000));
 			}
 		}
