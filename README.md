@@ -13,7 +13,7 @@ Creates Rivet namespaces for preview deployments.
 | `docker-build-path` | No | `.` | Docker build context directory |
 | `dockerfile-path` | No | `Dockerfile` | Dockerfile location |
 | `managed-pool-config` | No | `{ }` | JSON property overrides for managed pool configuration |
-| `prod-namespace` | No | - | **(Advanced)** Override the production namespace slug instead of auto-detecting the first `prod-*` namespace |
+| `prod-namespace` | No | - | **(Advanced)** Override the production namespace slug instead of auto-detecting the first `production-*` namespace |
 
 ## Setup
 

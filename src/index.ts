@@ -399,7 +399,7 @@ async function setupFlow(): Promise<void> {
 			console.log("  Pool already exists and is ready");
 		} else {
 			if (existingPool) {
-				console.log(`  Pool already exists (status: ${existingPool.status}), waiting for ready...`);
+				console.log(`  Pool already exists`);
 			} else {
 				console.log("  Pool does not exist, upserting...");
 				await rivetCloudFetch(
