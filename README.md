@@ -33,6 +33,7 @@ Creates Rivet namespaces for preview deployments.
        types: [opened, synchronize, reopened, closed]
      push:
        branches: [main]
+     workflow_dispatch:
 
    concurrency:
      group: rivet-deploy-${{ github.event.pull_request.number || github.ref }}
