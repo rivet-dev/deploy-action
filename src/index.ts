@@ -445,7 +445,9 @@ async function setupFlow(): Promise<void> {
 		console.log("");
 		console.log("Step 5: Building Docker image...");
 		console.log(`  Image: ${imageRef}`);
-		dockerExec(`docker build ${DOCKER_BUILD_PATH} -f ${DOCKERFILE_PATH} -t ${imageRef}`);
+		dockerExec(process.platform === "darwin"
+		? `docker buildx build --platform linux/amd64 ${DOCKER_BUILD_PATH} -f ${DOCKERFILE_PATH} -t ${imageRef}`
+		: `docker build ${DOCKER_BUILD_PATH} -f ${DOCKERFILE_PATH} -t ${imageRef}`);
 
 		// Step 6: Docker push
 		console.log("");
