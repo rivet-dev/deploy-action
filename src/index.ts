@@ -398,7 +398,7 @@ async function setupFlow(): Promise<void> {
 		if (existingPool?.status === "ready") {
 			console.log("  Pool already exists and is ready");
 		} else {
-			if (!existingPool || existingPoo.status !== "error") {
+			if (!existingPool || existingPool.status !== "error") {
 				console.log(`  Pool already exists`);
 			} else {
 				console.log("  Pool does not exist, upserting...");
@@ -408,8 +408,7 @@ async function setupFlow(): Promise<void> {
 						method: "PUT",
 						body: JSON.stringify({
 							displayName,
-							minCount: 0,
-							maxCount: 10,
+							maxConcurrentActors: 1000,
 							...MANAGED_POOL_CONFIG,
 						}),
 					}
@@ -469,8 +468,7 @@ async function setupFlow(): Promise<void> {
 
 		const poolBody = {
 			displayName,
-			minCount: 0,
-			maxCount: 10,
+			maxConcurrentActors: 1000,
 			...MANAGED_POOL_CONFIG,
 			// image is always set from the docker push and cannot be overridden
 			image: {
