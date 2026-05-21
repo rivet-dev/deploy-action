@@ -398,7 +398,7 @@ async function setupFlow(): Promise<void> {
 		if (existingPool?.status === "ready") {
 			console.log("  Pool already exists and is ready");
 		} else {
-			if (!existingPool || existingPool.status !== "error") {
+			if (existingPool && existingPool.status !== "error") {
 				console.log(`  Pool already exists`);
 			} else {
 				console.log("  Pool does not exist, upserting...");
