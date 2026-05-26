@@ -10,7 +10,7 @@ const GITHUB_EVENT_PATH = process.env.GITHUB_EVENT_PATH || "";
 const DOCKER_BUILD_PATH = process.env.DOCKER_BUILD_PATH || ".";
 const DOCKERFILE_PATH = process.env.DOCKERFILE_PATH || "Dockerfile";
 const GITHUB_SHA = process.env.GITHUB_SHA || "latest";
-const PROD_NAMESPACE_OVERRIDE = process.env.PROD_NAMESPACE_OVERRIDE || "";
+const PROD_NAMESPACE_OVERRIDE = process.env.PROD_NAMESPACE_OVERRIDE || null;
 
 function readGitHubEventPayload(): any | null {
 	if (!GITHUB_EVENT_PATH) return null;
@@ -49,7 +49,7 @@ const MANAGED_POOL_CONFIG: Record<string, any> = (() => {
 
 const IS_PR = !!PR_NUMBER;
 const IS_MAIN = BRANCH_NAME === MAIN_BRANCH;
-const NAMESPACE_NAME = IS_PR ? `pr-${PR_NUMBER}` : "production";
+const NS_DISPLAY_NAME = IS_MAIN ? "Production" : IS_PR ? `PR #${PR_NUMBER}` : `Branch ${BRANCH_NAME}`;
 const IMAGE_TAG = GITHUB_SHA.length >= 7 ? GITHUB_SHA.substring(0, 7) : GITHUB_SHA;
 
 function getCloudEndpoint(): string {
@@ -102,11 +102,10 @@ function buildRivetDataTag(data: RivetData): string {
 async function rivetCloudFetch(
 	path: string,
 	options: RequestInit = {},
-	config: { expectJson?: boolean } = {}
-): Promise<any> {
+): Promise<{ status: number; response: any }> {
 	const url = `${getCloudEndpoint()}${path}`;
 
-	const response = await fetch(url, {
+	const res = await fetch(url, {
 		...options,
 		headers: {
 			Authorization: `Bearer ${RIVET_CLOUD_TOKEN}`,
@@ -115,24 +114,66 @@ async function rivetCloudFetch(
 		},
 	});
 
-	const text = await response.text();
-	if (!response.ok) {
-		throw new Error(`Rivet Cloud API error: ${response.status} ${text}`);
+	const text = await res.text();
+	let response: any = null;
+	if (text) {
+		try {
+			response = JSON.parse(text);
+		} catch {
+			throw new Error(`Rivet Cloud API returned non-JSON: ${res.status} ${text}`);
+		}
 	}
 
-	if (config.expectJson === false) {
-		return { ok: true };
-	}
+	return { status: res.status, response };
+}
 
-	if (!text) {
-		return null;
+async function rivetCloudFetchOk(
+	path: string,
+	options: RequestInit = {},
+): Promise<any> {
+	const { status, response } = await rivetCloudFetch(path, options);
+	if (status < 200 || status >= 300) {
+		throw new Error(`Rivet Cloud API error: ${status} ${response ? JSON.stringify(response) : ""}`);
 	}
+	return response;
+}
 
-	try {
-		return JSON.parse(text);
-	} catch {
-		return text;
+async function getManagedPool(
+	project: string,
+	organization: string,
+	namespace: string,
+	poolName: string,
+): Promise<any | null> {
+	const { status, response } = await rivetCloudFetch(
+		`/projects/${project}/namespaces/${namespace}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
+	);
+	if (status === 404) return null;
+	if (status < 200 || status >= 300) {
+		throw new Error(`Rivet Cloud API error: ${status} ${response ? JSON.stringify(response) : ""}`);
 	}
+	return response?.managedPool ?? null;
+}
+
+async function getOrCreateManagedPool(
+	project: string,
+	organization: string,
+	namespace: string,
+	poolName: string,
+	createBody: Record<string, unknown>,
+): Promise<any> {
+	const existing = await getManagedPool(project, organization, namespace, poolName);
+	if (existing) return existing;
+
+	await rivetCloudFetchOk(
+		`/projects/${project}/namespaces/${namespace}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
+		{ method: "PUT", body: JSON.stringify(createBody) },
+	);
+
+	const created = await getManagedPool(project, organization, namespace, poolName);
+	if (!created) {
+		throw new Error(`Managed pool ${poolName} not found after getOrCreate`);
+	}
+	return created;
 }
 
 // GitHub API helpers
@@ -210,6 +251,79 @@ function dockerExec(cmd: string): void {
 	execSync(cmd, { stdio: "inherit", cwd: process.env.GITHUB_WORKSPACE });
 }
 
+function getSlugPrefix(displayName: string): string {
+	const slugPrefix = displayName
+		.normalize("NFD")
+		.toLowerCase()
+		.replace(/_/g, "-")
+		.replace(/[^a-z0-9\s\-]/g, "")
+		.replace(/\s+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "")
+		.slice(0, 16);
+
+	return slugPrefix;
+}
+
+async function findOrCreateNamespace(
+	project: string,
+	organization: string,
+	displayName: string,
+	nameOverride: string | null,
+): Promise<any> {
+	if (!nameOverride) nameOverride = null;
+
+	const slugPrefix = getSlugPrefix(displayName);
+
+	let cursor: string | null = null;
+	let foundNamespace: any = null;
+
+	let maxPolls = 10;
+	let iteration = 0;
+	do {
+		console.log(`  Fetching namespaces with cursor: ${cursor}`);
+		const { namespaces: nsList, pagination } = await rivetCloudFetchOk(
+			`/projects/${project}/namespaces?org=${encodeURIComponent(organization)}&limit=100`
+		);
+
+		for (const ns of nsList) {
+			if (ns.name === nameOverride) {
+				foundNamespace = ns;
+				break;
+			}
+
+			const slugWithoutSuffix = ns.name.slice(0, -5);
+			if (slugWithoutSuffix.startsWith(slugPrefix)) {
+				foundNamespace = ns;
+				break;
+			}
+		}
+
+		cursor = pagination.cursor;
+		iteration++;
+	} while (cursor && !foundNamespace && iteration < maxPolls);
+
+	if (foundNamespace) {
+		console.log(`  Found existing namespace: ${foundNamespace.name}`);
+		return {
+			namespace: foundNamespace,
+			engineNamespaceName: foundNamespace.access?.engineNamespaceName || foundNamespace.name,
+		};
+	}
+
+	console.log(`  No existing namespace found, creating: ${displayName}`);
+	const result = await rivetCloudFetchOk(`/projects/${project}/namespaces?org=${organization}`, {
+		method: "POST",
+		body: JSON.stringify({
+			displayName,
+		}),
+	});
+	return {
+		namespace: result.namespace,
+		engineNamespaceName: result.namespace.access?.engineNamespaceName || result.namespace.name,
+	};
+}
+
 async function cleanupFlow(): Promise<void> {
 	console.log("=== Rivet Deploy Cleanup ===");
 	console.log(`Event: ${GITHUB_EVENT_NAME}${EVENT_PAYLOAD?.action ? ` (${EVENT_PAYLOAD.action})` : ""}`);
@@ -240,14 +354,13 @@ async function cleanupFlow(): Promise<void> {
 	}
 
 	console.log("Inspecting Rivet token...");
-	const { project, organization } = await rivetCloudFetch("/tokens/api/inspect");
+	const { project, organization } = await rivetCloudFetchOk("/tokens/api/inspect");
 
 	console.log("Deleting managed pool...");
 	try {
-		await rivetCloudFetch(
+		await rivetCloudFetchOk(
 			`/projects/${project}/namespaces/${namespaceName}/managed-pools/default?org=${encodeURIComponent(organization)}`,
 			{ method: "DELETE" },
-			{ expectJson: false }
 		);
 	} catch (error) {
 		console.log("Warning: failed to delete managed pool:", error);
@@ -255,10 +368,9 @@ async function cleanupFlow(): Promise<void> {
 
 	console.log(`Archiving namespace: ${namespaceName}`);
 	try {
-		await rivetCloudFetch(
+		await rivetCloudFetchOk(
 			`/projects/${project}/namespaces/${namespaceName}?org=${organization}`,
 			{ method: "DELETE" },
-			{ expectJson: false }
 		);
 	} catch (error) {
 		console.log(`Warning: failed to archive namespace ${namespaceName}:`, error);
@@ -276,7 +388,7 @@ async function setupFlow(): Promise<void> {
 	console.log(`Mode: ${IS_PR ? `PR #${PR_NUMBER}` : `Production (${MAIN_BRANCH} branch)`}`);
 	console.log(`Branch: ${BRANCH_NAME}`);
 	console.log(`Repo: ${REPO_FULL_NAME}`);
-	console.log(`Namespace: ${NAMESPACE_NAME}`);
+	console.log(`Namespace: ${(IS_MAIN ? PROD_NAMESPACE_OVERRIDE ?? NS_DISPLAY_NAME : NS_DISPLAY_NAME)}`);
 	console.log(`Dockerfile: ${DOCKERFILE_PATH}`);
 	console.log(`Image tag: ${IMAGE_TAG}`);
 	console.log(`Rivet Engine Endpoint: ${RIVET_ENGINE_ENDPOINT}`);
@@ -301,7 +413,7 @@ async function setupFlow(): Promise<void> {
 	try {
 		// Step 1: Inspect token
 		console.log("Step 1: Inspecting Rivet token...");
-		const { project, organization } = await rivetCloudFetch("/tokens/api/inspect");
+		const { project, organization } = await rivetCloudFetchOk("/tokens/api/inspect");
 		console.log(`  Project: ${project}`);
 		console.log(`  Organization: ${organization}`);
 
@@ -313,75 +425,34 @@ async function setupFlow(): Promise<void> {
 		// Step 2: Create or find namespace
 		console.log("");
 		console.log("Step 2: Creating/finding namespace...");
-		const displayName = IS_PR ? `PR #${PR_NUMBER}` : "Production";
-
-		const namespaceMetadata: Record<string, any> = { skipOnboarding: true };
-		if (IS_PR) namespaceMetadata.prNumber = PR_NUMBER;
-		if (IS_MAIN) namespaceMetadata.isProduction = true;
 
 		let namespace: any;
 		let engineNamespace: string;
-
-		if (IS_MAIN) {
-			// For production, find the first existing production-* namespace (or use override)
-			let prodNs: any;
-			if (PROD_NAMESPACE_OVERRIDE) {
-				console.log(`  Using prod namespace override: ${PROD_NAMESPACE_OVERRIDE}`);
-				const { namespace: fullNs } = await rivetCloudFetch(
-					`/projects/${project}/namespaces/${PROD_NAMESPACE_OVERRIDE}?org=${encodeURIComponent(organization)}`
-				);
-				prodNs = fullNs;
-			} else {
-				console.log("  Looking for existing production-* namespace...");
-				const { namespaces: nsList } = await rivetCloudFetch(
-					`/projects/${project}/namespaces?org=${encodeURIComponent(organization)}&limit=10`
-				);
-				prodNs = nsList?.find((ns: any) => ns.name.startsWith("production-"));
-			}
-			if (prodNs) {
-				namespace = prodNs;
-				engineNamespace = prodNs.access?.engineNamespaceName || prodNs.name;
-				console.log(`  Found existing prod namespace: ${namespace.name}`);
-			} else {
-				console.log(`  No production-* namespace found, creating: ${NAMESPACE_NAME}`);
-				const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
-					method: "POST",
-					body: JSON.stringify({
-						name: NAMESPACE_NAME,
-						displayName,
-						metadata: namespaceMetadata,
-					}),
-				});
-				namespace = result.namespace;
-				engineNamespace = namespace.access?.engineNamespaceName || namespace.name;
-				console.log(`  Created namespace: ${namespace.name}`);
-			}
-		} else if (existingRivetData) {
+		if (existingRivetData) {
 			console.log(`  Fetching existing namespace: ${existingRivetData.namespace}`);
-			const { namespace: fullNs } = await rivetCloudFetch(
+			const { namespace: fullNs } = await rivetCloudFetchOk(
 				`/projects/${project}/namespaces/${existingRivetData.namespace}?org=${organization}`
 			);
 			namespace = fullNs;
 			engineNamespace = existingRivetData.engineNamespace;
 			console.log(`  Reusing namespace: ${namespace.name}`);
 		} else {
-			console.log(`  Creating new namespace: ${NAMESPACE_NAME}`);
-			const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
-				method: "POST",
-				body: JSON.stringify({
-					name: NAMESPACE_NAME,
-					displayName,
-					metadata: namespaceMetadata,
-				}),
-			});
+			const result = await findOrCreateNamespace(
+				project,
+				organization,
+				NS_DISPLAY_NAME,
+				IS_MAIN ? PROD_NAMESPACE_OVERRIDE : null
+			);
 			namespace = result.namespace;
-			engineNamespace = namespace.access?.engineNamespaceName || namespace.name;
-			console.log(`  Created namespace: ${namespace.name}`);
+			engineNamespace = result.engineNamespaceName;
 		}
-
+		
 		const dashboardUrl = `${getDashboardEndpoint()}/orgs/${organization}/projects/${project}/ns/${namespace.name}?skipOnboarding=1`;
 
-		const rivetDataTag = buildRivetDataTag({ namespace: namespace.name, engineNamespace });
+		const rivetDataTag = buildRivetDataTag({
+			namespace: namespace.name,
+			engineNamespace,
+		});
 		const registry = getRegistryEndpoint();
 		const imageName = projectName;
 		const poolName = "default";
@@ -389,45 +460,23 @@ async function setupFlow(): Promise<void> {
 
 		// Step 3: Ensure managed pool exists and is ready before first push
 		console.log("");
-		console.log("Step 3: Checking managed pool...");
-		const { managedPools: existingPools } = await rivetCloudFetch(
-			`/projects/${project}/namespaces/${namespace.name}/managed-pools?org=${encodeURIComponent(organization)}`
-		);
-		const existingPool = existingPools?.find((p: any) => p.name === poolName);
+		console.log("Step 3: Ensuring managed pool exists...");
+		await getOrCreateManagedPool(project, organization, namespace.name, poolName, {
+			displayName: NS_DISPLAY_NAME,
+			maxConcurrentActors: 1000,
+			...MANAGED_POOL_CONFIG,
+		});
 
-		if (existingPool?.status === "ready") {
-			console.log("  Pool already exists and is ready");
-		} else {
-			if (existingPool && existingPool.status !== "error") {
-				console.log(`  Pool already exists`);
-			} else {
-				console.log("  Pool does not exist, upserting...");
-				await rivetCloudFetch(
-					`/projects/${project}/namespaces/${namespace.name}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
-					{
-						method: "PUT",
-						body: JSON.stringify({
-							displayName,
-							maxConcurrentActors: 1000,
-							...MANAGED_POOL_CONFIG,
-						}),
-					}
-				);
+		console.log("  Waiting for managed pool to be ready...");
+		while (true) {
+			const pool = await getManagedPool(project, organization, namespace.name, poolName);
+			if (!pool) throw new Error(`Managed pool ${poolName} disappeared while polling`);
+			console.log(`  Pool status: ${pool.status ?? "unknown"}`);
+			if (pool.status === "ready") break;
+			if (pool.status === "error") {
+				throw new Error(`Managed pool entered error state: ${pool.error?.message ?? "unknown error"}`);
 			}
-
-			console.log("  Waiting for managed pool to be ready...");
-			while (true) {
-				const { managedPools } = await rivetCloudFetch(
-					`/projects/${project}/namespaces/${namespace.name}/managed-pools?org=${encodeURIComponent(organization)}`
-				);
-				const pool = managedPools?.find((p: any) => p.name === poolName);
-				console.log(`  Pool status: ${pool?.status ?? "unknown"}`);
-				if (pool?.status === "ready") break;
-				if (pool?.status === "error") {
-					throw new Error(`Managed pool entered error state: ${pool.error?.message ?? "unknown error"}`);
-				}
-				await new Promise(resolve => setTimeout(resolve, 2000));
-			}
+			await new Promise(resolve => setTimeout(resolve, 2000));
 		}
 
 		// Step 4: Docker login
@@ -467,7 +516,7 @@ async function setupFlow(): Promise<void> {
 		);
 
 		const poolBody = {
-			displayName,
+			displayName: NS_DISPLAY_NAME,
 			maxConcurrentActors: 1000,
 			...MANAGED_POOL_CONFIG,
 			// image is always set from the docker push and cannot be overridden
@@ -477,7 +526,7 @@ async function setupFlow(): Promise<void> {
 			},
 		};
 
-		await rivetCloudFetch(
+		await rivetCloudFetchOk(
 			`/projects/${project}/namespaces/${namespace.name}/managed-pools/${poolName}?org=${encodeURIComponent(organization)}`,
 			{
 				method: "PUT",
