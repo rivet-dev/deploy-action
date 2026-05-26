@@ -10,7 +10,7 @@ const GITHUB_EVENT_PATH = process.env.GITHUB_EVENT_PATH || "";
 const DOCKER_BUILD_PATH = process.env.DOCKER_BUILD_PATH || ".";
 const DOCKERFILE_PATH = process.env.DOCKERFILE_PATH || "Dockerfile";
 const GITHUB_SHA = process.env.GITHUB_SHA || "latest";
-const PROD_NAMESPACE_OVERRIDE = process.env.PROD_NAMESPACE_OVERRIDE || "";
+const PROD_NAMESPACE_OVERRIDE = process.env.PROD_NAMESPACE_OVERRIDE || null;
 
 function readGitHubEventPayload(): any | null {
 	if (!GITHUB_EVENT_PATH) return null;
@@ -49,7 +49,7 @@ const MANAGED_POOL_CONFIG: Record<string, any> = (() => {
 
 const IS_PR = !!PR_NUMBER;
 const IS_MAIN = BRANCH_NAME === MAIN_BRANCH;
-const NAMESPACE_NAME = IS_PR ? `pr-${PR_NUMBER}` : "production";
+const NS_DISPLAY_NAME = IS_MAIN ? "Production" : IS_PR ? `PR #${PR_NUMBER}` : `Branch ${BRANCH_NAME}`;
 const IMAGE_TAG = GITHUB_SHA.length >= 7 ? GITHUB_SHA.substring(0, 7) : GITHUB_SHA;
 
 function getCloudEndpoint(): string {
@@ -210,6 +210,85 @@ function dockerExec(cmd: string): void {
 	execSync(cmd, { stdio: "inherit", cwd: process.env.GITHUB_WORKSPACE });
 }
 
+function getSlugPrefix(displayName: string): string {
+	const slugPrefix = displayName
+		.normalize("NFD")
+		.toLowerCase()
+		.replace(/_/g, "-")
+		.replace(/[^a-z0-9\s\-]/g, "")
+		.replace(/\s+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "")
+		.slice(0, 16);
+
+	return slugPrefix;
+}
+
+async function findOrCreateNamespace(
+	project: string,
+	organization: string,
+	displayName: string,
+	nameOverride: string | null,
+): Promise<any> {
+	if (!nameOverride) nameOverride = null;
+
+	const slugPrefix = getSlugPrefix(displayName);
+
+	let cursor: string | null = null;
+	let foundNamespace: any = null;
+
+	let maxPolls = 10;
+	let iteration = 0;
+	do {
+		console.log(`  Fetching namespaces with cursor: ${cursor}`);
+		const { namespaces: nsList, pagination } = await rivetCloudFetch(
+			`/projects/${project}/namespaces?org=${encodeURIComponent(organization)}&limit=100`
+		);
+
+		// If there are no namespaces or no next page, give up
+		if (nsList.length === 0 || !pagination.cursor) {
+			cursor = null;
+			break;
+		}
+
+		for (const ns of nsList) {
+			if (ns.name === nameOverride) {
+				foundNamespace = ns;
+				break;
+			}
+
+			const slugWithoutSuffix = ns.name.slice(0, -5);
+			if (slugWithoutSuffix.startsWith(slugPrefix)) {
+				foundNamespace = ns;
+				break;
+			}
+		}
+
+		cursor = pagination.cursor;
+		iteration++;
+	} while (cursor && !foundNamespace && iteration < maxPolls);
+
+	if (foundNamespace) {
+		console.log(`  Found existing namespace: ${foundNamespace.name}`);
+		return {
+			namespace: foundNamespace,
+			engineNamespaceName: foundNamespace.access?.engineNamespaceName || foundNamespace.name,
+		};
+	}
+
+	console.log(`  No existing namespace found, creating: ${displayName}`);
+	const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
+		method: "POST",
+		body: JSON.stringify({
+			displayName,
+		}),
+	});
+	return {
+		namespace: result.namespace,
+		engineNamespaceName: result.namespace.access?.engineNamespaceName || result.namespace.name,
+	};
+}
+
 async function cleanupFlow(): Promise<void> {
 	console.log("=== Rivet Deploy Cleanup ===");
 	console.log(`Event: ${GITHUB_EVENT_NAME}${EVENT_PAYLOAD?.action ? ` (${EVENT_PAYLOAD.action})` : ""}`);
@@ -276,7 +355,7 @@ async function setupFlow(): Promise<void> {
 	console.log(`Mode: ${IS_PR ? `PR #${PR_NUMBER}` : `Production (${MAIN_BRANCH} branch)`}`);
 	console.log(`Branch: ${BRANCH_NAME}`);
 	console.log(`Repo: ${REPO_FULL_NAME}`);
-	console.log(`Namespace: ${NAMESPACE_NAME}`);
+	console.log(`Namespace: ${(MAIN_BRANCH ? PROD_NAMESPACE_OVERRIDE ?? NS_DISPLAY_NAME : NS_DISPLAY_NAME)}`);
 	console.log(`Dockerfile: ${DOCKERFILE_PATH}`);
 	console.log(`Image tag: ${IMAGE_TAG}`);
 	console.log(`Rivet Engine Endpoint: ${RIVET_ENGINE_ENDPOINT}`);
@@ -313,50 +392,10 @@ async function setupFlow(): Promise<void> {
 		// Step 2: Create or find namespace
 		console.log("");
 		console.log("Step 2: Creating/finding namespace...");
-		const displayName = IS_PR ? `PR #${PR_NUMBER}` : "Production";
-
-		const namespaceMetadata: Record<string, any> = { skipOnboarding: true };
-		if (IS_PR) namespaceMetadata.prNumber = PR_NUMBER;
-		if (IS_MAIN) namespaceMetadata.isProduction = true;
 
 		let namespace: any;
 		let engineNamespace: string;
-
-		if (IS_MAIN) {
-			// For production, find the first existing production-* namespace (or use override)
-			let prodNs: any;
-			if (PROD_NAMESPACE_OVERRIDE) {
-				console.log(`  Using prod namespace override: ${PROD_NAMESPACE_OVERRIDE}`);
-				const { namespace: fullNs } = await rivetCloudFetch(
-					`/projects/${project}/namespaces/${PROD_NAMESPACE_OVERRIDE}?org=${encodeURIComponent(organization)}`
-				);
-				prodNs = fullNs;
-			} else {
-				console.log("  Looking for existing production-* namespace...");
-				const { namespaces: nsList } = await rivetCloudFetch(
-					`/projects/${project}/namespaces?org=${encodeURIComponent(organization)}&limit=10`
-				);
-				prodNs = nsList?.find((ns: any) => ns.name.startsWith("production-"));
-			}
-			if (prodNs) {
-				namespace = prodNs;
-				engineNamespace = prodNs.access?.engineNamespaceName || prodNs.name;
-				console.log(`  Found existing prod namespace: ${namespace.name}`);
-			} else {
-				console.log(`  No production-* namespace found, creating: ${NAMESPACE_NAME}`);
-				const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
-					method: "POST",
-					body: JSON.stringify({
-						name: NAMESPACE_NAME,
-						displayName,
-						metadata: namespaceMetadata,
-					}),
-				});
-				namespace = result.namespace;
-				engineNamespace = namespace.access?.engineNamespaceName || namespace.name;
-				console.log(`  Created namespace: ${namespace.name}`);
-			}
-		} else if (existingRivetData) {
+		if (existingRivetData) {
 			console.log(`  Fetching existing namespace: ${existingRivetData.namespace}`);
 			const { namespace: fullNs } = await rivetCloudFetch(
 				`/projects/${project}/namespaces/${existingRivetData.namespace}?org=${organization}`
@@ -365,23 +404,22 @@ async function setupFlow(): Promise<void> {
 			engineNamespace = existingRivetData.engineNamespace;
 			console.log(`  Reusing namespace: ${namespace.name}`);
 		} else {
-			console.log(`  Creating new namespace: ${NAMESPACE_NAME}`);
-			const result = await rivetCloudFetch(`/projects/${project}/namespaces?org=${organization}`, {
-				method: "POST",
-				body: JSON.stringify({
-					name: NAMESPACE_NAME,
-					displayName,
-					metadata: namespaceMetadata,
-				}),
-			});
+			const result = await findOrCreateNamespace(
+				project,
+				organization,
+				NS_DISPLAY_NAME,
+				IS_MAIN ? PROD_NAMESPACE_OVERRIDE : null
+			);
 			namespace = result.namespace;
-			engineNamespace = namespace.access?.engineNamespaceName || namespace.name;
-			console.log(`  Created namespace: ${namespace.name}`);
+			engineNamespace = result.engineNamespaceName;
 		}
-
+		
 		const dashboardUrl = `${getDashboardEndpoint()}/orgs/${organization}/projects/${project}/ns/${namespace.name}?skipOnboarding=1`;
 
-		const rivetDataTag = buildRivetDataTag({ namespace: namespace.name, engineNamespace });
+		const rivetDataTag = buildRivetDataTag({
+			namespace: namespace.name,
+			engineNamespace,
+		});
 		const registry = getRegistryEndpoint();
 		const imageName = projectName;
 		const poolName = "default";
@@ -407,7 +445,7 @@ async function setupFlow(): Promise<void> {
 					{
 						method: "PUT",
 						body: JSON.stringify({
-							displayName,
+							displayName: NS_DISPLAY_NAME,
 							maxConcurrentActors: 1000,
 							...MANAGED_POOL_CONFIG,
 						}),
@@ -467,7 +505,7 @@ async function setupFlow(): Promise<void> {
 		);
 
 		const poolBody = {
-			displayName,
+			displayName: NS_DISPLAY_NAME,
 			maxConcurrentActors: 1000,
 			...MANAGED_POOL_CONFIG,
 			// image is always set from the docker push and cannot be overridden
