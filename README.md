@@ -47,7 +47,7 @@ Creates Rivet namespaces for preview deployments.
          pull-requests: write
        steps:
          - uses: actions/checkout@v4
-         - uses: rivet-dev/deploy-action@v1
+         - uses: rivet-dev/deploy-action@v1.1.1
            with:
              rivet-token: ${{ secrets.RIVET_CLOUD_TOKEN }}
    ```
