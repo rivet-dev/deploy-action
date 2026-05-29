@@ -98,6 +98,21 @@ function buildRivetDataTag(data: RivetData): string {
 	return `<!-- <rivet-data>${JSON.stringify(data)}</rivet-data> -->`;
 }
 
+function expectedNamespacePrefix(): string {
+	if (IS_MAIN && PROD_NAMESPACE_OVERRIDE) return PROD_NAMESPACE_OVERRIDE;
+	if (IS_PR) return `pr-${PR_NUMBER}`;
+	return getSlugPrefix(NS_DISPLAY_NAME);
+}
+
+function isAllowedNamespace(name: string): boolean {
+	if (typeof name !== "string" || name.length === 0) return false;
+	const prefix = expectedNamespacePrefix();
+	if (IS_MAIN && PROD_NAMESPACE_OVERRIDE) return name === PROD_NAMESPACE_OVERRIDE;
+	// Namespaces created by this action have the form `<slugPrefix>-<5-char-suffix>`,
+	// or for PRs may equal `pr-<n>` exactly.
+	return name === prefix || name.startsWith(`${prefix}-`);
+}
+
 // Rivet Cloud API helpers
 async function rivetCloudFetch(
 	path: string,
@@ -230,7 +245,11 @@ async function findExistingComment(): Promise<ExistingComment | null> {
 		console.log("Comments response:", comments);
 		return null;
 	}
-	const existing = comments.find((c: any) => c.body?.includes(COMMENT_MARKER));
+	const existing = comments.find(
+		(c: any) =>
+			c.body?.includes(COMMENT_MARKER) &&
+			(c.user?.type === "Bot" || c.user?.login === "github-actions[bot]"),
+	);
 	if (!existing) return null;
 	return { id: existing.id, body: existing.body };
 }
@@ -370,8 +389,19 @@ async function cleanupFlow(): Promise<void> {
 	const existingComment = await findExistingComment();
 	let commentId = existingComment?.id ?? null;
 
-	const existingRivetData = existingComment?.body ? parseRivetData(existingComment.body) : null;
+	const rawRivetData = existingComment?.body ? parseRivetData(existingComment.body) : null;
+	const existingRivetData =
+		rawRivetData && isAllowedNamespace(rawRivetData.namespace) ? rawRivetData : null;
+	if (rawRivetData && !existingRivetData) {
+		console.log(
+			`Ignoring rivet-data with namespace "${rawRivetData.namespace}" — does not match expected prefix for this PR.`,
+		);
+	}
 	const namespaceName = existingRivetData?.namespace || (PR_NUMBER ? `pr-${PR_NUMBER}` : null);
+	if (namespaceName && !isAllowedNamespace(namespaceName)) {
+		console.log(`Refusing to clean up namespace "${namespaceName}" — not allowed for this PR.`);
+		return;
+	}
 	const projectName = getRepoProjectName();
 	const tableHeader = `| Project | Namespace | Status | Actions |\n|:--------|:----------|:-------|:-------|\n`;
 	const intro = "Rivet preview namespace cleanup after PR close.\n\n";
@@ -429,7 +459,14 @@ async function setupFlow(): Promise<void> {
 	const existingComment = await findExistingComment();
 	let commentId = existingComment?.id ?? null;
 
-	const existingRivetData = existingComment?.body ? parseRivetData(existingComment.body) : null;
+	const rawRivetData = existingComment?.body ? parseRivetData(existingComment.body) : null;
+	const existingRivetData =
+		rawRivetData && isAllowedNamespace(rawRivetData.namespace) ? rawRivetData : null;
+	if (rawRivetData && !existingRivetData) {
+		console.log(
+			`Ignoring rivet-data with namespace "${rawRivetData.namespace}" — does not match expected prefix.`,
+		);
+	}
 	if (existingRivetData) {
 		console.log(`Found existing namespace in comment: ${existingRivetData.namespace}`);
 	}
