@@ -1,0 +1,26 @@
+name: Test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run check
+      - name: Run the composite action with previews disabled
+        id: skip
+        uses: ./
+      - name: Verify skipped deployment
+        env:
+          DEPLOY_STATUS: ${{ steps.skip.outputs.status }}
+        run: test "$DEPLOY_STATUS" = skipped
+      - name: Build the shared Cloud and Fly example
+        run: docker build -t rivet-counter examples/counter
+      - name: Verify plain registry.start on cold boot and restart
+        run: python3 scripts/smoke-start.py rivet-counter
