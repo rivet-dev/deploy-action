@@ -1,0 +1,11 @@
+{
+  "name": "rivet-deploy-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "rivetkit": "3.0.1-preview.2"
+  }
+}
