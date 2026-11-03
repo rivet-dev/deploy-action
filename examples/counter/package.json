@@ -6,6 +6,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "rivetkit": "3.0.0-preview.4"
+    "rivetkit": "3.0.1-preview.2"
   }
 }

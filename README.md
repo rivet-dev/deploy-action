@@ -1,4 +1,4 @@
-# Rivet Deploy Action — v3
+# Rivet Deploy Action v2 — for Rivet v3
 
 Map branches to **existing Rivet Cloud clusters**. Optionally deploy every other branch to a **single Fly Machine** running the app with RivetKit's automatic local engine, like a dev machine. Unmapped branches are skipped when previews are disabled or no Fly token is configured.
 
@@ -11,7 +11,7 @@ Add these GitHub Actions secrets:
 
 Use the published CLI with v3 support, for example `rivet-cli-version: '3.0.0'`.
 
-**Known restart issue:** RivetKit `3.0.0` can mistake a reused PID from a previous VM boot for a still-running local Engine. The consumer test documents a temporary container startup workaround; the action does not apply it. Plain app startup remains `registry.start()`. A fixed RivetKit release is needed for an unmodified, restart-safe container.
+For previews, use RivetKit `3.0.1-preview.2`, which fixes local Engine recovery when a VM reuses a process ID. This version was tested with plain `registry.start()`, persistent state, and stop/wake cycles, without a startup workaround or dependency override.
 
 Create `.github/workflows/rivet-deploy.yml`:
 
@@ -37,8 +37,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      # Use the v3 release tag once published; a commit SHA also works.
-      - uses: rivet-dev/deploy-action@v3
+      - uses: rivet-dev/deploy-action@v2.0.0-rc.1
         with:
           rivet-token: ${{ secrets.RIVET_CLOUD_TOKEN }}
           rivet-cli-version: '3.0.0'
@@ -94,7 +93,7 @@ Outputs: `status` (`ready`, `skipped`, `closed`), `provider` (`rivet`, `fly`), `
 
 ## Upgrading from v1
 
-v3 uses branch-to-cluster mappings instead of creating namespaces. Replace `main-branch`, `prod-namespace`, `rivet-endpoint`, `runner-config`, and `compute-pool-config` with the mapping above. Configure cluster resources in Rivet. Keep using the v1 tag for the old namespace-based deployment flow.
+Action v2 targets Rivet v3 clusters and uses branch-to-cluster mappings instead of creating namespaces. Replace `main-branch`, `prod-namespace`, `rivet-endpoint`, `runner-config`, and `compute-pool-config` with the mapping above. Configure cluster resources in Rivet. Keep using the v1 tag for the old namespace-based deployment flow.
 
 ## Development
 

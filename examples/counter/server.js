@@ -18,8 +18,3 @@ createServer(async (req, res) => {
     res.end(JSON.stringify(body));
   } catch (error) { res.statusCode=500; res.end(JSON.stringify({error:String(error)})); }
 }).listen(Number(process.env.PORT || 8080), '0.0.0.0');
-createServer(async (req, res) => {
-  const response = await registry.routes.prometheusMetrics();
-  res.statusCode=response.status;
-  res.end(await response.text());
-}).listen(Number(process.env.RIVETKIT_METRICS_PORT || 9464), '127.0.0.1');

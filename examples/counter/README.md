@@ -13,7 +13,7 @@ dockerfile-path: examples/counter/Dockerfile
 - `/increment` increments a persistent counter.
 - `/count` reads it.
 
-Cloud supplies the remote engine connection. Fly sets development mode so RivetKit starts its bundled engine and stores data on the preview volume. The internal metrics listener is for Rivet Cloud monitoring.
+Cloud supplies the remote engine connection. Fly sets development mode so RivetKit starts its bundled engine and stores data on the preview volume. Both use published RivetKit `3.0.1-preview.2`, with no dependency overrides or separate metrics listener.
 
 Run the cold-start check locally:
 
