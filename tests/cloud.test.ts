@@ -68,7 +68,18 @@ test('preinstalled CLI bypasses package installation and a failed rollout is not
 });
 
 test('missing deployment credentials fail without starting the CLI', async () => {
-  await expect(deployCloud({ ...config, cloudToken: '' }, { cluster: 'production' }, async () => { throw new Error('must not start'); })).rejects.toThrow('Cloud deployment credential');
+  await expect(deployCloud({ ...config, cloudToken: '', githubOidc: false }, { cluster: 'production' }, async () => { throw new Error('must not start'); })).rejects.toThrow('Cloud deployment credential');
+});
+
+test('without rivet-token the CLI exchanges the GitHub OIDC token', async () => {
+  const { buildId } = await deployCloud({ ...config, cloudToken: '', githubOidc: true }, { cluster: 'production' }, async (_program, args, options) => {
+    expect(options?.env?.RIVET_CLOUD_TOKEN).toBe('');
+    if (args.includes('--help')) return '--cluster --build-context';
+    if (args.includes('/v2/clusters/{cluster}/regions')) return JSON.stringify({ items: [{ region: 'one' }] });
+    if (args.includes('deploy')) return 'test-build\n';
+    return JSON.stringify({ build_id: 'test-build', endpoints: { public: 'https://app.example.test' } });
+  });
+  expect(buildId).toBe('test-build');
 });
 
 test('concurrent pool changes cannot produce a misleading success URL', async () => {
