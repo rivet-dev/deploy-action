@@ -4,9 +4,17 @@ Map branches to **existing Rivet Cloud clusters**. Optionally deploy every other
 
 ## Setup
 
-Add these GitHub Actions secrets:
+Rivet Cloud authenticates the workflow with GitHub's OIDC token, so no Rivet secret is stored in GitHub:
 
-- `RIVET_CLOUD_TOKEN`: a Rivet Cloud credential with cluster deployment access in your organization. An Engine admin token cannot deploy builds. The action uses the [Rivet CLI](https://rivet.dev/docs/cli/) and passes this secret through `RIVET_CLOUD_TOKEN`.
+1. In the cluster's settings, add a GitHub Actions trust for the repository and the branch or environment that deploys, with the deploy scope.
+2. Grant the job `id-token: write`, as in the workflow below.
+
+Each run exchanges its OIDC token for a credential that lasts 15 minutes and has only the trust's scopes.
+
+Alternatively, set `rivet-token` to a Rivet Cloud credential with cluster deployment access (not an Engine admin token). The action passes it to the [Rivet CLI](https://rivet.dev/docs/cli/) through `RIVET_CLOUD_TOKEN`.
+
+For Fly previews, add this GitHub Actions secret:
+
 - `FLY_API_TOKEN`: a Fly organization token that can create, deploy, and delete preview apps. Only needed for Fly previews.
 
 Use the published CLI with v3 support, for example `rivet-cli-version: '3.0.0'`.
@@ -34,12 +42,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: rivet-dev/deploy-action@v2.0.0-rc.1
         with:
-          rivet-token: ${{ secrets.RIVET_CLOUD_TOKEN }}
           rivet-cli-version: '3.0.0'
           rivet-org: my-org
           branch-clusters: |
@@ -74,7 +82,8 @@ Fly creates one Machine with a 20 GiB persistent volume. Increasing `fly-volume-
 | Input | Default | Purpose |
 | --- | --- | --- |
 | `branch-clusters` | `{}` | Branch → cluster mapping |
-| `rivet-token`, `rivet-org` | — | Required for mapped Cloud deployments |
+| `rivet-org` | — | Required for mapped Cloud deployments |
+| `rivet-token` | — | Cloud credential; omit to use the cluster's GitHub Actions trust (`id-token: write`) |
 | `rivet-cli-version` | `latest` | CLI release with v3 cluster support; pin for reproducibility |
 | `rivet-cli-path` | — | Use a preinstalled v3 CLI instead of downloading one |
 | `docker-build-path` | `.` | Build context, relative to checkout |

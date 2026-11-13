@@ -6,7 +6,8 @@ export async function deployCloud(
   target: Cluster,
   command: Run = run,
 ): Promise<{ buildId: string; url: string }> {
-  if (!config.cloudToken || !config.cloudOrg) throw new Error("Cloud deployments need rivet-token and rivet-org; use a Cloud deployment credential, not an Engine admin token");
+  if (!config.cloudOrg) throw new Error("Cloud deployments need rivet-org");
+  if (!config.cloudToken && !config.githubOidc) throw new Error("Cloud deployments need a Cloud deployment credential: grant the workflow `id-token: write` and add a GitHub Actions trust to the cluster, or set rivet-token (not an Engine admin token)");
   const program = config.cliPath || "bun";
   const prefix = config.cliPath ? [] : ["x", "--package", `@rivetkit/cli@${config.cliVersion}`, "rivet"];
   const options = { cwd: config.workspace, env: { RIVET_CLOUD_TOKEN: config.cloudToken, NO_COLOR: "1" } };
