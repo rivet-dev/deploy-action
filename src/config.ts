@@ -80,6 +80,8 @@ export function readConfig(env: NodeJS.ProcessEnv, event: Event) {
     cliVersion,
     cliPath: env.RIVET_CLI_PATH || "",
     cloudToken: env.RIVET_CLOUD_TOKEN || "",
+    // Set only when the workflow grants `id-token: write`.
+    githubOidc: !!env.ACTIONS_ID_TOKEN_REQUEST_URL,
     cloudOrg: env.RIVET_ORG || "",
     githubToken: env.GITHUB_TOKEN || "",
   };

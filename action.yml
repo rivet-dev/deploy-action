@@ -9,7 +9,7 @@ inputs:
     description: 'JSON map of exact branch names to cluster names or {cluster, region, pool} objects'
     default: '{}'
   rivet-token:
-    description: 'Rivet Cloud credential with cluster deployment access (not an Engine admin token)'
+    description: 'Rivet Cloud credential with cluster deployment access (not an Engine admin token). Omit it to use the cluster''s GitHub Actions trust; needs `id-token: write`'
   rivet-org:
     description: 'Organization slug for mapped Rivet Cloud clusters'
   rivet-cli-version:
