@@ -44,6 +44,29 @@ function integer(raw: string, name: string, min: number, max: number): number {
   return Number(raw);
 }
 
+const CLOUD_APIS: Record<string, string> = {
+  production: "https://cloud-api.rivet.dev",
+  staging: "https://cloud-api.staging.rivet.dev",
+};
+
+export function parseCloudApi(raw: string): string {
+  const value = raw.trim();
+  if (!value) return "";
+  const alias = CLOUD_APIS[value];
+  if (alias) return alias;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("rivet-cloud-api must be production, staging, or an https:// URL");
+  }
+  // The Cloud token and GitHub OIDC token are sent to this host.
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+    throw new Error("rivet-cloud-api must be an https:// origin without credentials, path, or query");
+  }
+  return url.origin;
+}
+
 export function previewName(repo: string, branch: string): string {
   const slug = repo.split("/").pop()!.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 20);
   const hash = createHash("sha256").update(`${repo.toLowerCase()}\0${branch}`).digest("hex").slice(0, 20);
@@ -81,6 +104,7 @@ export function readConfig(env: NodeJS.ProcessEnv, event: Event) {
     cliPath: env.RIVET_CLI_PATH || "",
     cloudToken: env.RIVET_CLOUD_TOKEN || "",
     cloudOrg: env.RIVET_ORG || "",
+    cloudApi: parseCloudApi(env.RIVET_CLOUD_API || ""),
     githubToken: env.GITHUB_TOKEN || "",
   };
 }

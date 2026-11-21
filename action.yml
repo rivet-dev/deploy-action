@@ -12,6 +12,9 @@ inputs:
     description: 'Rivet Cloud credential with cluster deployment access (not an Engine admin token)'
   rivet-org:
     description: 'Organization slug for mapped Rivet Cloud clusters'
+  rivet-cloud-api:
+    description: 'Rivet Cloud API: production, staging, or an https:// URL; empty uses the CLI default'
+    default: ''
   rivet-cli-version:
     description: '@rivetkit/cli version or dist-tag with v3 --cluster support'
     default: latest
@@ -87,6 +90,7 @@ runs:
         RIVET_CLI_VERSION: ${{ inputs.rivet-cli-version }}
         RIVET_CLI_PATH: ${{ inputs.rivet-cli-path }}
         RIVET_ORG: ${{ inputs.rivet-org }}
+        RIVET_CLOUD_API: ${{ inputs.rivet-cloud-api }}
         DOCKER_BUILD_PATH: ${{ inputs.docker-build-path }}
         DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
         FLY_ENABLED: ${{ inputs.fly-enabled }}

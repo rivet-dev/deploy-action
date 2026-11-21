@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseClusters, plan, previewName, readConfig } from '../src/config';
+import { parseCloudApi, parseClusters, plan, previewName, readConfig } from '../src/config';
 const env = { GITHUB_REPOSITORY: 'example/app', GITHUB_REF_NAME: 'feature', GITHUB_EVENT_NAME: 'push' };
 
 describe('deployment selection', () => {
@@ -51,5 +51,19 @@ describe('deployment selection', () => {
     expect(name).toBe(previewName('example/app', 'feature/A'));
     expect(name).not.toBe(previewName('example/app', 'feature/a'));
     expect(name).not.toBe(previewName('other/app', 'feature/A'));
+  });
+});
+
+describe('cloud api endpoint', () => {
+  test('aliases, origins and the CLI default', () => {
+    expect(parseCloudApi('')).toBe('');
+    expect(parseCloudApi('production')).toBe('https://cloud-api.rivet.dev');
+    expect(parseCloudApi('staging')).toBe('https://cloud-api.staging.rivet.dev');
+    expect(parseCloudApi('https://cloud-api.example.test/')).toBe('https://cloud-api.example.test');
+  });
+  test('rejects endpoints that could leak credentials or misroute', () => {
+    for (const value of ['prod', 'http://cloud-api.rivet.dev', 'https://user:pw@cloud-api.rivet.dev', 'https://cloud-api.rivet.dev/v2', 'https://cloud-api.rivet.dev?x=1', 'cloud-api.rivet.dev']) {
+      expect(() => parseCloudApi(value)).toThrow();
+    }
   });
 });

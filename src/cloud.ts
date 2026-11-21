@@ -16,7 +16,13 @@ export async function deployCloud(
   if (!help.includes("--cluster") || !help.includes("--build-context")) {
     throw new Error("This Rivet CLI cannot deploy v3 clusters. Set rivet-cli-version to a release supporting --cluster, or rivet-cli-path to an installed v3 binary.");
   }
-  const selection = ["--org", config.cloudOrg, "--cluster", target.cluster];
+  if (config.cloudApi && !help.includes("--cloud-api")) {
+    throw new Error("This Rivet CLI does not support --cloud-api; upgrade it or unset rivet-cloud-api");
+  }
+  const selection = [
+    "--org", config.cloudOrg, "--cluster", target.cluster,
+    ...(config.cloudApi ? ["--cloud-api", config.cloudApi] : []),
+  ];
   const api = async <T>(path: string): Promise<T> => JSON.parse(await cli(["api", path, ...selection], true));
   // Resolve and validate the region before building or changing the pool.
   const regions = await api<{ items: { region: string }[] }>("/v2/clusters/{cluster}/regions");

@@ -79,3 +79,24 @@ test('concurrent pool changes cannot produce a misleading success URL', async ()
     return JSON.stringify({ build_id: 'different-build', endpoints: { public: 'https://app.example.test' } });
   })).rejects.toThrow('pool changed');
 });
+
+test('cloud api override reaches every CLI call', async () => {
+  const calls: string[][] = [];
+  const result = await deployCloud({ ...config, cloudApi: 'https://cloud-api.staging.rivet.dev' }, { cluster: 'production' }, async (_program, args) => {
+    const call = args.slice(4);
+    calls.push(call);
+    if (call.includes('--help')) return '--cluster --build-context --cloud-api';
+    if (call[1]?.endsWith('/regions')) return JSON.stringify({ items: [{ region: 'r' }] });
+    if (call[0] === 'deploy') return 'b1\n';
+    return JSON.stringify({ build_id: 'b1', endpoints: { public: null } });
+  });
+  expect(result.buildId).toBe('b1');
+  for (const call of calls.filter((c) => !c.includes('--help'))) {
+    expect(call[call.indexOf('--cloud-api') + 1]).toBe('https://cloud-api.staging.rivet.dev');
+  }
+});
+
+test('cloud api override fails on a CLI without --cloud-api', async () => {
+  await expect(deployCloud({ ...config, cloudApi: 'https://cloud-api.staging.rivet.dev' }, { cluster: 'production' }, async () => '--cluster --build-context'))
+    .rejects.toThrow('--cloud-api');
+});
