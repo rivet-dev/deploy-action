@@ -75,6 +75,7 @@ Fly creates one Machine with a 20 GiB persistent volume. Increasing `fly-volume-
 | --- | --- | --- |
 | `branch-clusters` | `{}` | Branch → cluster mapping |
 | `rivet-token`, `rivet-org` | — | Required for mapped Cloud deployments |
+| `rivet-cloud-api` | CLI default | `production`, `staging`, or an `https://` Cloud API origin |
 | `rivet-cli-version` | `latest` | CLI release with v3 cluster support; pin for reproducibility |
 | `rivet-cli-path` | — | Use a preinstalled v3 CLI instead of downloading one |
 | `docker-build-path` | `.` | Build context, relative to checkout |
